@@ -1,1 +1,655 @@
+#include <iostream>
+#include <vector>
+#include <set>
+#include <algorithm>
+#include <random>
+#include <limits>
+#include <locale>
+#include <sstream>
+#include <stack>
+#include <map>
 
+using namespace std;
+
+class SetCalculator
+{
+private:
+    vector<vector<int>> sets;
+    const int UNIVERSE_MIN = -40;
+    const int UNIVERSE_MAX = 40;
+    const int UNIVERSE_SIZE = 81;
+
+    // Однозначные математические символы для операций
+    const string UNION_SYMBOL = " + ";
+    const string INTERSECTION_SYMBOL = " * ";
+    const string DIFFERENCE_SYMBOL = " - ";
+    const string SYMMETRIC_DIFFERENCE_SYMBOL = " ~ ";
+    const string COMPLEMENT_SYMBOL = "!";
+
+    // Проверка, что число принадлежит универсуму
+    bool isInUniverse(int num)
+    {
+        return num >= UNIVERSE_MIN && num <= UNIVERSE_MAX;
+    }
+
+    // Удаление дубликатов и сортировка множества
+    vector<int> normalizeSet(const vector<int>& inputSet)
+    {
+        if (inputSet.empty()) return {};
+
+        set<int> uniqueElements(inputSet.begin(), inputSet.end());
+        vector<int> result(uniqueElements.begin(), uniqueElements.end());
+        sort(result.begin(), result.end());
+        return result;
+    }
+
+    // Проверка на корректность вводимого числа
+    int getValidNumber()
+    {
+        int num;
+        while (true)
+        {
+            cin >> num;
+            if (cin.fail() || !isInUniverse(num))
+            {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Ошибка! Введите число от " << UNIVERSE_MIN << " до " << UNIVERSE_MAX << ": ";
+            }
+            else {
+                break;
+            }
+        }
+        return num;
+    }
+
+    // Функция для повторного ввода чисел с диапазоном
+    int getNumberInRange(int minVal, int maxVal, const string& prompt) {
+        int num;
+        while (true) {
+            cout << prompt;
+            cin >> num;
+            if (cin.fail() || num < minVal || num > maxVal) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Ошибка! Введите число от " << minVal << " до " << maxVal << ": ";
+            }
+            else {
+                break;
+            }
+        }
+        return num;
+    }
+
+    // Функция для повторного ввода выбора множества
+    int getSetIndex(int maxSets, const string& prompt) {
+        int index;
+        while (true) {
+            cout << prompt;
+            cin >> index;
+            if (cin.fail() || index < 1 || index > maxSets) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Ошибка! Введите число от 1 до " << maxSets << ": ";
+            }
+            else {
+                break;
+            }
+        }
+        return index - 1;
+    }
+
+    // Функция для повторного ввода выбора меню
+    int getMenuChoice(int minChoice, int maxChoice) {
+        int choice;
+        while (true) {
+            cin >> choice;
+            if (cin.fail() || choice < minChoice || choice > maxChoice) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Ошибка! Введите число от " << minChoice << " до " << maxChoice << ": ";
+            }
+            else {
+                break;
+            }
+        }
+        return choice;
+    }
+
+    // Парсинг и вычисление формулы
+    vector<int> evaluateFormula(const string& formula) {
+        stack<vector<int>> values;
+        stack<char> operators;
+
+        for (size_t i = 0; i < formula.length(); i++) {
+            // Пропускаем пробелы
+            if (formula[i] == ' ') continue;
+
+            // Если это множество (A1, A2, ...)
+            if (formula[i] == 'A') {
+                i++;
+                string numStr;
+                while (i < formula.length() && isdigit(formula[i])) {
+                    numStr += formula[i];
+                    i++;
+                }
+                i--; // Возвращаемся на один символ
+
+                int setIndex = stoi(numStr) - 1;
+                if (setIndex >= 0 && setIndex < (int)sets.size()) {
+                    values.push(sets[setIndex]);
+                }
+                else {
+                    cout << "Ошибка: множество A" << (setIndex + 1) << " не существует!" << endl;
+                    return {};
+                }
+            }
+            // Если это операция
+            else if (formula[i] == '+' || formula[i] == '*' || formula[i] == '-' ||
+                formula[i] == '~' || formula[i] == '!') {
+                operators.push(formula[i]);
+            }
+            // Если это открывающая скобка
+            else if (formula[i] == '(') {
+                operators.push('(');
+            }
+            // Если это закрывающая скобка
+            else if (formula[i] == ')') {
+                while (!operators.empty() && operators.top() != '(') {
+                    applyOperation(values, operators);
+                }
+                if (!operators.empty()) operators.pop(); // Удаляем '('
+            }
+        }
+
+        // Применяем оставшиеся операции
+        while (!operators.empty()) {
+            applyOperation(values, operators);
+        }
+
+        if (values.empty()) return {};
+        return values.top();
+    }
+
+    // Применение операции к значениям в стеке
+    void applyOperation(stack<vector<int>>& values, stack<char>& operators) {
+        if (operators.empty()) return;
+
+        char op = operators.top();
+        operators.pop();
+
+        if (op == '!') {
+            // Унарная операция (дополнение)
+            if (values.empty()) return;
+            vector<int> set = values.top();
+            values.pop();
+            values.push(complementSet(set));
+        }
+        else {
+            // Бинарные операции
+            if (values.size() < 2) return;
+            vector<int> set2 = values.top();
+            values.pop();
+            vector<int> set1 = values.top();
+            values.pop();
+
+            switch (op) {
+            case '+': values.push(unionSets(set1, set2)); break;
+            case '*': values.push(intersectSets(set1, set2)); break;
+            case '-': values.push(subtractSets(set1, set2)); break;
+            case '~': values.push(symmetricDifference(set1, set2)); break;
+            }
+        }
+    }
+
+public:
+    // 1. Создание множества случайным образом
+    void createRandomSet()
+    {
+        vector<int> universe;
+        for (int i = UNIVERSE_MIN; i <= UNIVERSE_MAX; ++i)
+        {
+            universe.push_back(i);
+        }
+
+        random_device rd;
+        mt19937 g(rd());
+        shuffle(universe.begin(), universe.end(), g);
+
+        int size = getNumberInRange(1, UNIVERSE_SIZE, "Введите размер случайного множества (1-81): ");
+
+        vector<int> randomSet(universe.begin(), universe.begin() + size);
+        sets.push_back(normalizeSet(randomSet));
+        cout << "Создано случайное множество A" << sets.size() << endl;
+    }
+
+    // 2. Ручной ввод множества
+    void createManualSet()
+    {
+        vector<int> manualSet;
+
+        int count = getNumberInRange(0, UNIVERSE_SIZE, "Введите количество элементов: ");
+
+        cout << "Введите " << count << " элементов из диапазона ["
+            << UNIVERSE_MIN << ", " << UNIVERSE_MAX << "]:\n";
+
+        for (int i = 0; i < count; ++i) {
+            cout << "Элемент " << (i + 1) << ": ";
+            manualSet.push_back(getValidNumber());
+        }
+
+        sets.push_back(normalizeSet(manualSet));
+        cout << "Создано множество ручного ввода A" << sets.size() << endl;
+    }
+
+    // 3. Создание множества по условию (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+    void createConditionalSet()
+    {
+        vector<int> conditionalSet;
+
+        cout << "Выберите условия (можно несколько через пробел):\n";
+        cout << "1 - Четные числа\n";
+        cout << "2 - Нечетные числа\n";
+        cout << "3 - Кратные 3\n";
+        cout << "4 - Кратные 5\n";
+        cout << "5 - Положительные числа\n";
+        cout << "6 - Отрицательные числа\n";
+        cout << "7 - Числа, кратные 10\n";
+        cout << "8 - Нулевые и положительные\n";
+        cout << "9 - Простые числа\n";
+        cout << "Введите номера условий: ";
+
+        cin.ignore(); // Очищаем буфер перед чтением строки
+        string input;
+        getline(cin, input);
+
+        // Разбиваем ввод на отдельные номера условий
+        vector<int> conditions;
+        stringstream ss(input);
+        string token;
+        while (getline(ss, token, ' ')) {
+            if (!token.empty()) {
+                try {
+                    int condition = stoi(token);
+                    if (condition >= 1 && condition <= 9) {
+                        conditions.push_back(condition);
+                    }
+                }
+                catch (const exception& e) {
+                    // Игнорируем некорректный ввод
+                }
+            }
+        }
+
+        // Если не выбрано условий - используем четные по умолчанию
+        if (conditions.empty()) {
+            conditions.push_back(1);
+            cout << "Используется условие по умолчанию: четные числа\n";
+        }
+
+        // Создаем множество по выбранным условиям
+        for (int i = UNIVERSE_MIN; i <= UNIVERSE_MAX; ++i)
+        {
+            bool satisfiesAll = true;
+
+            // Проверяем все выбранные условия
+            for (int condition : conditions) {
+                bool currentCondition = false;
+                switch (condition) {
+                case 1: currentCondition = (i % 2 == 0); break;
+                case 2: currentCondition = (i % 2 != 0); break;
+                case 3: currentCondition = (i % 3 == 0); break;
+                case 4: currentCondition = (i % 5 == 0); break;
+                case 5: currentCondition = (i > 0); break;
+                case 6: currentCondition = (i < 0); break;
+                case 7: currentCondition = (i % 10 == 0); break;
+                case 8: currentCondition = (i >= 0); break;
+                case 9: currentCondition = isPrime(i); break;
+                }
+
+                // Если хотя бы одно условие не выполняется - пропускаем число
+                if (!currentCondition) {
+                    satisfiesAll = false;
+                    break;
+                }
+            }
+
+            if (satisfiesAll)
+            {
+                conditionalSet.push_back(i);
+            }
+        }
+
+        sets.push_back(normalizeSet(conditionalSet));
+        cout << "Создано множество по условию A" << sets.size() << endl;
+    }
+
+    // Проверка на простое число
+    bool isPrime(int n)
+    {
+        if (n <= 1) return false;
+        if (n <= 3) return true;
+        if (n % 2 == 0 || n % 3 == 0) return false;
+
+        for (int i = 5; i * i <= n; i += 6) {
+            if (n % i == 0 || n % (i + 2) == 0) return false;
+        }
+        return true;
+    }
+
+    // Объединение множеств
+    vector<int> unionSets(const vector<int>& set1, const vector<int>& set2)
+    {
+        vector<int> result;
+        set_union(set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            back_inserter(result));
+        return normalizeSet(result);
+    }
+
+    // Объединение нескольких множеств
+    vector<int> unionMultipleSets()
+    {
+        if (sets.empty()) return {};
+        if (sets.size() == 1) return sets[0];
+
+        vector<int> result = sets[0];
+        for (size_t i = 1; i < sets.size(); ++i)
+        {
+            result = unionSets(result, sets[i]);
+        }
+        return result;
+    }
+
+    // Пересечение множеств
+    vector<int> intersectSets(const vector<int>& set1, const vector<int>& set2)
+    {
+        vector<int> result;
+        set_intersection(set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            back_inserter(result));
+        return normalizeSet(result);
+    }
+
+    // Пересечение нескольких множеств
+    vector<int> intersectMultipleSets()
+    {
+        if (sets.empty()) return {};
+        if (sets.size() == 1) return sets[0];
+
+        vector<int> result = sets[0];
+        for (size_t i = 1; i < sets.size(); ++i)
+        {
+            result = intersectSets(result, sets[i]);
+            if (result.empty()) break; // Оптимизация: если пересечение пустое
+        }
+        return result;
+    }
+
+    // Разность множеств
+    vector<int> subtractSets(const vector<int>& set1, const vector<int>& set2)
+    {
+        vector<int> result;
+        set_difference(set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            back_inserter(result));
+        return normalizeSet(result);
+    }
+
+    // Симметрическая разность
+    vector<int> symmetricDifference(const vector<int>& set1, const vector<int>& set2)
+    {
+        vector<int> result;
+        set_symmetric_difference(set1.begin(), set1.end(),
+            set2.begin(), set2.end(),
+            back_inserter(result));
+        return normalizeSet(result);
+    }
+
+    // Дополнение (отрицание)
+    vector<int> complementSet(const vector<int>& set)
+    {
+        vector<int> result;
+        for (int i = UNIVERSE_MIN; i <= UNIVERSE_MAX; ++i)
+        {
+            if (find(set.begin(), set.end(), i) == set.end())
+            {
+                result.push_back(i);
+            }
+        }
+        return normalizeSet(result);
+    }
+
+    // Вывод множества
+    void printSet(const vector<int>& set)
+    {
+        if (set.empty())
+        {
+            cout << "{}";
+            return;
+        }
+
+        cout << "{";
+        for (size_t i = 0; i < set.size(); ++i)
+        {
+            cout << set[i];
+            if (i != set.size() - 1) {
+                cout << ", ";
+            }
+        }
+        cout << "}";
+    }
+
+    // Вывод всех множеств
+    void printAllSets()
+    {
+        if (sets.empty())
+        {
+            cout << "Нет созданных множеств.\n";
+            return;
+        }
+
+        cout << "\n=== СОЗДАННЫЕ МНОЖЕСТВА ===\n";
+        for (size_t i = 0; i < sets.size(); ++i)
+        {
+            cout << "Множество A" << (i + 1) << ": ";
+            printSet(sets[i]);
+            cout << " (размер: " << sets[i].size() << ")" << endl;
+        }
+    }
+
+    // Ввод и вычисление формулы
+    void evaluateFormulaMenu() {
+        if (sets.empty()) {
+            cout << "Нет созданных множеств! Сначала создайте множества.\n";
+            return;
+        }
+
+        cout << "\n=== ВВОД ФОРМУЛЫ ===\n";
+        cout << "Доступные операции:\n";
+        cout << "+ - объединение (A1 + A2)\n";
+        cout << "* - пересечение (A1 * A2)\n";
+        cout << "- - разность (A1 - A2)\n";
+        cout << "~ - симметрическая разность (A1 ~ A2)\n";
+        cout << "! - дополнение (!A1)\n";
+        cout << "() - скобки для приоритета\n\n";
+
+        printAllSets();
+
+        cout << "\nПримеры формул:\n";
+        cout << "A1 + A2\n";
+        cout << "(A1 * A2) + A3\n";
+        cout << "!(A1 + A2)\n";
+        cout << "A1 ~ A2\n\n";
+
+        cout << "Введите формулу: ";
+
+        cin.ignore();
+        string formula;
+        getline(cin, formula);
+
+        vector<int> result = evaluateFormula(formula);
+        if (!result.empty()) {
+            cout << "Результат: " << formula << " = ";
+            printSet(result);
+            cout << " (размер: " << result.size() << ")" << endl;
+        }
+    }
+
+    // Основное меню
+    void run() {
+        setlocale(LC_ALL, "Russian");
+
+        cout << "=== КАЛЬКУЛЯТОР МНОЖЕСТВ ===\n";
+        cout << "Универсум: числа от " << UNIVERSE_MIN << " до " << UNIVERSE_MAX << endl;
+
+        while (true)
+        {
+            cout << "\n=== ГЛАВНОЕ МЕНЮ ===\n";
+            cout << "1. Создать случайное множество\n";
+            cout << "2. Создать множество ручным вводом\n";
+            cout << "3. Создать множество по условию\n";
+            cout << "4. Показать все множества\n";
+            cout << "5. Операции над множествами\n";
+            cout << "6. Ввод формулы\n";
+            cout << "7. Очистить все множества\n";
+            cout << "8. Выход\n";
+            cout << "Выберите действие: ";
+
+            int choice = getMenuChoice(1, 8);
+
+            switch (choice)
+            {
+            case 1: createRandomSet(); break;
+            case 2: createManualSet(); break;
+            case 3: createConditionalSet(); break;
+            case 4: printAllSets(); break;
+            case 5: operationsMenu(); break;
+            case 6: evaluateFormulaMenu(); break;
+            case 7:
+                sets.clear();
+                cout << "Все множества очищены.\n";
+                break;
+            case 8:
+                cout << "До свидания!\n";
+                return;
+            }
+        }
+    }
+
+    // Меню операций (ИСПРАВЛЕННАЯ ВЕРСИЯ с формулами)
+    void operationsMenu()
+    {
+        if (sets.empty())
+        {
+            cout << "Нет созданных множеств! Сначала создайте множества.\n";
+            return;
+        }
+
+        if (sets.size() < 2)
+        {
+            cout << "Недостаточно множеств для операций! Создайте хотя бы 2 множества.\n";
+            return;
+        }
+
+        while (true)
+        {
+            cout << "\n=== ОПЕРАЦИИ НАД МНОЖЕСТВАМИ ===\n";
+            printAllSets();
+            cout << "\nДоступные операции:\n";
+            cout << "1. Объединение (2 множества)\n";
+            cout << "2. Объединение (все множества)\n";
+            cout << "3. Пересечение (2 множества)\n";
+            cout << "4. Пересечение (все множества)\n";
+            cout << "5. Разность (2 множества)\n";
+            cout << "6. Симметрическая разность (2 множества)\n";
+            cout << "7. Дополнение (1 множество)\n";
+            cout << "8. Назад в главное меню\n";
+            cout << "Выберите операцию: ";
+
+            int choice = getMenuChoice(1, 8);
+
+            if (choice == 8) break;
+
+            vector<int> result;
+
+            switch (choice)
+            {
+            case 1: {
+                int set1 = getSetIndex(sets.size(), "Выберите первое множество: ");
+                int set2 = getSetIndex(sets.size(), "Выберите второе множество: ");
+                result = unionSets(sets[set1], sets[set2]);
+                // ФОРМУЛА: A + B
+                cout << "A" << (set1 + 1) << UNION_SYMBOL << "A" << (set2 + 1) << " = ";
+                break;
+            }
+            case 2:
+            {
+                result = unionMultipleSets();
+                // ФОРМУЛА: A1 + A2 + ... + An
+                cout << "A1" << UNION_SYMBOL << "A2";
+                for (size_t i = 2; i < sets.size(); i++) {
+                    cout << UNION_SYMBOL << "A" << (i + 1);
+                }
+                cout << " = ";
+                break;
+            }
+            case 3: {
+                int set1 = getSetIndex(sets.size(), "Выберите первое множество: ");
+                int set2 = getSetIndex(sets.size(), "Выберите второе множество: ");
+                result = intersectSets(sets[set1], sets[set2]);
+                // ФОРМУЛА: A * B
+                cout << "A" << (set1 + 1) << INTERSECTION_SYMBOL << "A" << (set2 + 1) << " = ";
+                break;
+            }
+            case 4:
+            {
+                result = intersectMultipleSets();
+                // ФОРМУЛА: A1 * A2 * ... * An
+                cout << "A1" << INTERSECTION_SYMBOL << "A2";
+                for (size_t i = 2; i < sets.size(); i++) {
+                    cout << INTERSECTION_SYMBOL << "A" << (i + 1);
+                }
+                cout << " = ";
+                break;
+            }
+            case 5:
+            {
+                int set1 = getSetIndex(sets.size(), "Выберите первое множество: ");
+                int set2 = getSetIndex(sets.size(), "Выберите второе множество: ");
+                result = subtractSets(sets[set1], sets[set2]);
+                // ФОРМУЛА: A - B
+                cout << "A" << (set1 + 1) << DIFFERENCE_SYMBOL << "A" << (set2 + 1) << " = ";
+                break;
+            }
+            case 6:
+            {
+                int set1 = getSetIndex(sets.size(), "Выберите первое множество: ");
+                int set2 = getSetIndex(sets.size(), "Выберите второе множество: ");
+                result = symmetricDifference(sets[set1], sets[set2]);
+                // ФОРМУЛА: A ~ B
+                cout << "A" << (set1 + 1) << SYMMETRIC_DIFFERENCE_SYMBOL << "A" << (set2 + 1) << " = ";
+                break;
+            }
+            case 7:
+            {
+                int setNum = getSetIndex(sets.size(), "Выберите множество: ");
+                result = complementSet(sets[setNum]);
+                // ФОРМУЛА: !A
+                cout << COMPLEMENT_SYMBOL << "A" << (setNum + 1) << " = ";
+                break;
+            }
+            }
+
+            printSet(result);
+            cout << " (размер: " << result.size() << ")" << endl;
+        }
+    }
+};
+
+int main()
+{
+    SetCalculator calculator;
+    calculator.run();
+    return 0;
+}
