@@ -1,0 +1,265 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <clocale>
+
+using namespace std;
+
+class BooleanFunction {
+private:
+    string vector;
+    int length;
+
+    bool checkLinear4() const {
+        // Линейные функции 2 переменных
+        string linear[] = {
+            "0000", "0011", "0101", "0110",
+            "1001", "1010", "1100", "1111"
+        };
+        for (int i = 0; i < 8; i++) {
+            if (vector == linear[i]) return true;
+        }
+        return false;
+    }
+
+    bool checkLinear8() const {
+        // Линейные функции 3 переменных
+        string linear[] = {
+            "00000000", "00001111", "00110011", "00111100",
+            "01010101", "01011010", "01100110", "01101001",
+            "10010110", "10011001", "10100101", "10101010",
+            "11000011", "11001100", "11110000", "11111111"
+        };
+        for (int i = 0; i < 16; i++) {
+            if (vector == linear[i]) return true;
+        }
+        return false;
+    }
+
+public:
+    BooleanFunction(const string& vec) : vector(vec), length(static_cast<int>(vec.length())) {}
+
+    bool preservesZero() const {
+        return vector[0] == '0';
+    }
+
+    bool preservesOne() const {
+        return vector[length - 1] == '1';
+    }
+
+    bool isSelfDual() const {
+        for (int i = 0; i < length / 2; i++) {
+            if (vector[i] == vector[length - 1 - i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool isMonotonic() const {
+        for (int i = 0; i < length; i++) {
+            for (int j = 0; j < length; j++) {
+                if ((i & j) == i) {
+                    if (vector[i] > vector[j]) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    bool isLinear() const {
+        if (length == 1) return true;
+        if (length == 2) return true;
+        if (length == 4) return checkLinear4();
+        if (length == 8) return checkLinear8();
+        return false;
+    }
+
+    string getVector() const {
+        return vector;
+    }
+
+    int getLength() const {
+        return length;
+    }
+};
+
+class FunctionSystem {
+private:
+    vector<BooleanFunction> functions;
+    string classNames[5] = { "T0", "T1", "S", "M", "L" };
+
+    bool isSubsystemFull(const vector<BooleanFunction>& tempFunctions) {
+        if (tempFunctions.empty()) return false;
+
+        bool hasClass[5] = { false };
+
+        for (const auto& func : tempFunctions) {
+            if (!func.preservesZero()) hasClass[0] = true;
+            if (!func.preservesOne()) hasClass[1] = true;
+            if (!func.isSelfDual()) hasClass[2] = true;
+            if (!func.isMonotonic()) hasClass[3] = true;
+            if (!func.isLinear()) hasClass[4] = true;
+        }
+
+        for (int i = 0; i < 5; i++) {
+            if (!hasClass[i]) return false;
+        }
+        return true;
+    }
+
+public:
+    void addFunction(const string& vector) {
+        int len = static_cast<int>(vector.length());
+        if (len == 1 || len == 2 || len == 4 || len == 8) {
+            functions.push_back(BooleanFunction(vector));
+            cout << "Функция добавлена: " << vector << endl;
+        }
+        else {
+            cout << "Ошибка: длина вектора должна быть 1, 2, 4 или 8" << endl;
+        }
+    }
+
+    void printMembershipMatrix() {
+        if (functions.empty()) {
+            cout << "Нет функций в системе" << endl;
+            return;
+        }
+
+        cout << "\nМатрица принадлежности к замкнутым классам:" << endl;
+        cout << "Функция\\Класс";
+        for (int i = 0; i < 5; i++) {
+            cout << "\t" << classNames[i];
+        }
+        cout << endl;
+
+        for (size_t i = 0; i < functions.size(); i++) {
+            cout << "f" << i + 1 << " (" << functions[i].getVector() << ")";
+            cout << "\t" << (functions[i].preservesZero() ? "+" : "-");
+            cout << "\t" << (functions[i].preservesOne() ? "+" : "-");
+            cout << "\t" << (functions[i].isSelfDual() ? "+" : "-");
+            cout << "\t" << (functions[i].isMonotonic() ? "+" : "-");
+            cout << "\t" << (functions[i].isLinear() ? "+" : "-");
+            cout << endl;
+        }
+    }
+
+    bool isFullSystem() {
+        if (functions.empty()) return false;
+
+        bool hasClass[5] = { false };
+
+        for (const auto& func : functions) {
+            if (!func.preservesZero()) hasClass[0] = true;
+            if (!func.preservesOne()) hasClass[1] = true;
+            if (!func.isSelfDual()) hasClass[2] = true;
+            if (!func.isMonotonic()) hasClass[3] = true;
+            if (!func.isLinear()) hasClass[4] = true;
+        }
+
+        for (int i = 0; i < 5; i++) {
+            if (!hasClass[i]) return false;
+        }
+        return true;
+    }
+
+    bool isBasis() {
+        return isFullSystem() && isMinimal();
+    }
+
+    void printResults() {
+        cout << "\n=== РЕЗУЛЬТАТЫ ===" << endl;
+
+        bool full = isFullSystem();
+        bool basis = isBasis();
+
+        cout << "1. Система функций " << (full ? "является" : "НЕ является") << " полной" << endl;
+        cout << "2. Система функций " << (basis ? "является" : "НЕ является") << " базисом" << endl;
+
+        if (full && !basis) {
+            cout << "   (система полная, но не минимальная)" << endl;
+        }
+    }
+
+private:
+    bool isMinimal() {
+        for (size_t i = 0; i < functions.size(); i++) {
+            vector<BooleanFunction> tempFunctions;
+            for (size_t j = 0; j < functions.size(); j++) {
+                if (j != i) {
+                    tempFunctions.push_back(functions[j]);
+                }
+            }
+
+            if (isSubsystemFull(tempFunctions)) {
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+
+    FunctionSystem system;
+    int choice;
+
+    cout << "=== Оценка полноты системы функций ===" << endl;
+
+    do {
+        cout << "\nМеню:" << endl;
+        cout << "1. Добавить функцию" << endl;
+        cout << "2. Показать матрицу принадлежности" << endl;
+        cout << "3. Проверить систему" << endl;
+        cout << "4. Выход" << endl;
+        cout << "Выберите действие: ";
+
+        if (!(cin >> choice)) {
+            cin.clear();
+            cin.ignore(10000, '\n');
+            cout << "Ошибка: введите число от 1 до 4" << endl;
+            continue;
+        }
+
+        switch (choice) {
+        case 1: {
+            string vector;
+            cout << "Введите вектор функции (длина 1, 2, 4 или 8, только 0 и 1): ";
+            cin >> vector;
+
+            bool valid = true;
+            for (char c : vector) {
+                if (c != '0' && c != '1') {
+                    valid = false;
+                    break;
+                }
+            }
+
+            if (valid) {
+                system.addFunction(vector);
+            }
+            else {
+                cout << "Ошибка: вектор должен содержать только символы '0' и '1'" << endl;
+            }
+            break;
+        }
+        case 2:
+            system.printMembershipMatrix();
+            break;
+        case 3:
+            system.printMembershipMatrix();
+            system.printResults();
+            break;
+        case 4:
+            cout << "Выход из программы" << endl;
+            break;
+        default:
+            cout << "Неверный выбор. Введите число от 1 до 4" << endl;
+        }
+    } while (choice != 4);
+
+    return 0;
+}
