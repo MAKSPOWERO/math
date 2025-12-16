@@ -1,0 +1,519 @@
+#include <iostream>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <algorithm>
+#include <set>
+#include <map>
+#include <cmath>
+#include <bitset>
+#include <iomanip>
+#include <cstdlib>
+
+using namespace std;
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+
+bool isValidVector(const string& vector) {
+    if (vector.length() != 16) return false;
+    for (char c : vector) {
+        if (c != '0' && c != '1') return false;
+    }
+    return true;
+}
+
+string readVectorFromFile(const string& filename) {
+    ifstream file(filename);
+    string vector;
+    if (file.is_open()) {
+        getline(file, vector);
+        file.close();
+    }
+    return vector;
+}
+
+string readVectorFromConsole() {
+    string vector;
+    cout << "Введите вектор из 16 символов (0 и 1): ";
+    cin >> vector;
+    return vector;
+}
+
+int countBits(int n) {
+    int count = 0;
+    while (n) {
+        count += n & 1;
+        n >>= 1;
+    }
+    return count;
+}
+
+// ==================== КЛАСС ИМПЛИКАНТЫ ====================
+
+class Implicant {
+public:
+    int value;      // Значение для немасскированных битов
+    int mask;       // 1 = бит маскирован (тире), 0 = бит значимый
+    string expr;    // Текстовое представление
+    string bin;     // Двоичное с тире
+
+    Implicant(int v = 0, int m = 0) : value(v), mask(m) {
+        // Создаем двоичное представление
+        bin = "";
+        for (int i = 3; i >= 0; i--) {
+            if (mask & (1 << i)) {
+                bin += '-';
+            }
+            else {
+                bin += ((value >> i) & 1) ? '1' : '0';
+            }
+        }
+
+        // Создаем текстовое представление
+        expr = "";
+        char vars[4] = { 'A', 'B', 'C', 'D' };
+        for (int i = 3; i >= 0; i--) {
+            if (!(mask & (1 << i))) {
+                if ((value >> i) & 1) {
+                    expr += vars[3 - i];      // Прямая переменная
+                }
+                else {
+                    expr += char(tolower(vars[3 - i])); // Инверсия
+                }
+            }
+        }
+    }
+
+    // Получить количество единиц в исходном значении
+    int getOnesCount() const {
+        return countBits(value);
+    }
+
+    // Проверка возможности склейки
+    bool canCombine(const Implicant& other) const {
+        // Разница в количестве единиц должна быть 1
+        if (abs(getOnesCount() - other.getOnesCount()) != 1) return false;
+
+        // Маски должны совпадать
+        if (mask != other.mask) return false;
+
+        // Должны отличаться ровно одним битом
+        int diff = value ^ other.value;
+        return countBits(diff) == 1;
+    }
+
+    // Склейка импликант
+    Implicant combine(const Implicant& other) const {
+        int diff = value ^ other.value;
+        int newMask = mask | diff;
+        int newValue = value & ~diff;
+        return Implicant(newValue, newMask);
+    }
+
+    // Проверка покрытия минтерма
+    bool covers(int minterm) const {
+        for (int i = 0; i < 4; i++) {
+            int bitPos = 3 - i;
+            if (!(mask & (1 << bitPos))) { // Если бит не маскирован
+                int impBit = (value >> bitPos) & 1;
+                int minBit = (minterm >> bitPos) & 1;
+                if (impBit != minBit) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    // Операторы для сравнения
+    bool operator<(const Implicant& other) const {
+        if (value != other.value) return value < other.value;
+        return mask < other.mask;
+    }
+
+    bool operator==(const Implicant& other) const {
+        return value == other.value && mask == other.mask;
+    }
+};
+
+// ==================== КЛАСС КВАЙНА ====================
+
+class QuineMcCluskey {
+private:
+    string vectorStr;
+    vector<int> minterms;
+    vector<Implicant> primes;
+    vector<vector<Implicant>> allStages;
+
+public:
+    QuineMcCluskey(const string& vec) : vectorStr(vec) {
+        // Получаем минтермы из вектора
+        for (int i = 0; i < 16; i++) {
+            if (vectorStr[i] == '1') {
+                minterms.push_back(i);
+            }
+        }
+    }
+
+    // 1. Таблица истинности
+    void printTruthTable() {
+        cout << "\n=== ТАБЛИЦА ИСТИННОСТИ ===\n";
+        cout << "A B C D | F\n";
+        cout << "--------|---\n";
+
+        for (int i = 0; i < 16; i++) {
+            bitset<4> bits(i);
+            cout << bits[3] << " " << bits[2] << " " << bits[1] << " " << bits[0];
+            cout << " | " << vectorStr[i] << endl;
+        }
+
+        cout << "\nПроверка: длина=" << vectorStr.length();
+        if (vectorStr.length() == 16) cout << " OK\n";
+        else cout << " ERROR\n";
+
+        int ones = count(vectorStr.begin(), vectorStr.end(), '1');
+        cout << "Единиц: " << ones << ", Нулей: " << 16 - ones << endl;
+    }
+
+    // 2. СДНФ
+    void printSDNF() {
+        cout << "\n=== СДНФ ===\n";
+
+        if (minterms.empty()) {
+            cout << "F = 0\n";
+            return;
+        }
+
+        cout << "F = ";
+        for (size_t i = 0; i < minterms.size(); i++) {
+            if (i > 0) cout << " + ";
+
+            bitset<4> bits(minterms[i]);
+            char vars[4] = { 'A', 'B', 'C', 'D' };
+
+            cout << "(";
+            for (int j = 3; j >= 0; j--) {
+                if (j < 3) cout << "*";
+                if (bits[j]) {
+                    cout << vars[3 - j];
+                }
+                else {
+                    cout << "!" << vars[3 - j];
+                }
+            }
+            cout << ")";
+        }
+        cout << "\n";
+
+        // Альтернативная форма
+        cout << "\nКомпактно (строчные = инверсия):\nF = ";
+        for (size_t i = 0; i < minterms.size(); i++) {
+            if (i > 0) cout << " + ";
+
+            bitset<4> bits(minterms[i]);
+            char vars[4] = { 'A', 'B', 'C', 'D' };
+
+            for (int j = 3; j >= 0; j--) {
+                if (bits[j]) {
+                    cout << vars[3 - j];       // заглавная
+                }
+                else {
+                    cout << char(tolower(vars[3 - j])); // строчная
+                }
+            }
+        }
+        cout << endl;
+    }
+
+    // 3. Поиск простых импликант
+    void findPrimes() {
+        cout << "\n=== ПОИСК ПРОСТЫХ ИМПЛИКАНТ ===\n";
+
+        if (minterms.empty()) {
+            cout << "Нет минтермов\n";
+            return;
+        }
+
+        // Создаем начальные импликанты
+        vector<Implicant> current;
+        for (int m : minterms) {
+            current.push_back(Implicant(m));
+        }
+
+        // Группируем по количеству единиц
+        vector<vector<Implicant>> groups(5);
+        for (const auto& imp : current) {
+            groups[imp.getOnesCount()].push_back(imp);
+        }
+
+        cout << "\nНачальные группы:\n";
+        for (int i = 0; i < 5; i++) {
+            if (!groups[i].empty()) {
+                cout << "Группа " << i << ": ";
+                for (const auto& imp : groups[i]) {
+                    cout << imp.bin << "(" << imp.expr << ") ";
+                }
+                cout << endl;
+            }
+        }
+
+        allStages.clear();
+        int stage = 1;
+
+        while (!current.empty()) {
+            cout << "\n--- Этап " << stage << " ---\n";
+
+            // Сортируем по количеству единиц
+            sort(current.begin(), current.end(),
+                [](const Implicant& a, const Implicant& b) {
+                    return a.getOnesCount() < b.getOnesCount();
+                });
+
+            // Группируем
+            vector<vector<Implicant>> currGroups(5);
+            for (const auto& imp : current) {
+                currGroups[imp.getOnesCount()].push_back(imp);
+            }
+
+            // Склеиваем
+            vector<Implicant> next;
+            vector<bool> used(current.size(), false);
+
+            for (int i = 0; i < 4; i++) {
+                if (!currGroups[i].empty() && !currGroups[i + 1].empty()) {
+                    for (const auto& a : currGroups[i]) {
+                        for (const auto& b : currGroups[i + 1]) {
+                            if (a.canCombine(b)) {
+                                Implicant combined = a.combine(b);
+
+                                // Отмечаем как использованные
+                                for (size_t k = 0; k < current.size(); k++) {
+                                    if (current[k] == a || current[k] == b) {
+                                        used[k] = true;
+                                    }
+                                }
+
+                                // Проверяем на дубликаты
+                                bool duplicate = false;
+                                for (const auto& imp : next) {
+                                    if (imp == combined) {
+                                        duplicate = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!duplicate) {
+                                    next.push_back(combined);
+                                    cout << a.expr << " + " << b.expr
+                                        << " -> " << combined.expr << endl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Добавляем неиспользованные как простые
+            for (size_t i = 0; i < current.size(); i++) {
+                if (!used[i]) {
+                    bool exists = false;
+                    for (const auto& p : primes) {
+                        if (p == current[i]) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        primes.push_back(current[i]);
+                        cout << "Простая: " << current[i].expr << endl;
+                    }
+                }
+            }
+
+            allStages.push_back(current);
+            current = next;
+            stage++;
+        }
+
+        // Удаляем дубликаты
+        sort(primes.begin(), primes.end());
+        primes.erase(unique(primes.begin(), primes.end()), primes.end());
+
+        cout << "\nВсе простые импликанты: ";
+        for (const auto& p : primes) {
+            cout << p.expr << " ";
+        }
+        cout << endl;
+    }
+
+    // 4. Импликантная матрица
+    void buildMatrix() {
+        cout << "\n=== ИМПЛИКАНТНАЯ МАТРИЦА ===\n";
+
+        if (minterms.empty() || primes.empty()) {
+            cout << "Нет данных\n";
+            return;
+        }
+
+        cout << "\nМинтермы:   ";
+        for (int m : minterms) {
+            cout << setw(3) << m;
+        }
+        cout << "\n";
+
+        cout << "\nИмпликанта |";
+        for (int m : minterms) {
+            cout << setw(3) << m;
+        }
+        cout << "\n" << string(13 + 3 * minterms.size(), '-') << "\n";
+
+        for (const auto& prime : primes) {
+            cout << setw(10) << prime.expr << " |";
+            for (int m : minterms) {
+                if (prime.covers(m)) {
+                    cout << setw(3) << "+";
+                }
+                else {
+                    cout << setw(3) << "-";
+                }
+            }
+            cout << "\n";
+        }
+    }
+
+    // 5. Минимальные покрытия
+    void findCover() {
+        cout << "\n=== МИНИМАЛЬНЫЕ ПОКРЫТИЯ ===\n";
+
+        if (minterms.empty() || primes.empty()) {
+            cout << "Нет данных\n";
+            return;
+        }
+
+        // Строим матрицу покрытия
+        vector<vector<bool>> cover(primes.size(), vector<bool>(minterms.size(), false));
+        for (size_t i = 0; i < primes.size(); i++) {
+            for (size_t j = 0; j < minterms.size(); j++) {
+                cover[i][j] = primes[i].covers(minterms[j]);
+            }
+        }
+
+        // Ищем обязательные импликанты
+        cout << "\nПоиск обязательных импликант:\n";
+        vector<bool> isEssential(primes.size(), false);
+        vector<bool> covered(minterms.size(), false);
+
+        for (size_t j = 0; j < minterms.size(); j++) {
+            int count = 0;
+            int lastPrime = -1;
+
+            for (size_t i = 0; i < primes.size(); i++) {
+                if (cover[i][j]) {
+                    count++;
+                    lastPrime = i;
+                }
+            }
+
+            if (count == 1 && lastPrime != -1) {
+                isEssential[lastPrime] = true;
+                cout << "Минтерм " << minterms[j]
+                    << " покрывается только " << primes[lastPrime].expr << endl;
+
+                // Помечаем все покрываемые этим минтермы
+                for (size_t k = 0; k < minterms.size(); k++) {
+                    if (cover[lastPrime][k]) {
+                        covered[k] = true;
+                    }
+                }
+            }
+        }
+
+        // Вывод результата
+        cout << "\nОбязательные импликанты: ";
+        bool hasEssential = false;
+        for (size_t i = 0; i < primes.size(); i++) {
+            if (isEssential[i]) {
+                cout << primes[i].expr << " ";
+                hasEssential = true;
+            }
+        }
+        if (!hasEssential) cout << "нет";
+
+        // Проверяем покрытие
+        bool allCovered = true;
+        for (bool c : covered) {
+            if (!c) {
+                allCovered = false;
+                break;
+            }
+        }
+
+        if (allCovered) {
+            cout << "\n\nВсе минтермы покрыты!\nМинимальная ДНФ: ";
+            bool first = true;
+            for (size_t i = 0; i < primes.size(); i++) {
+                if (isEssential[i]) {
+                    if (!first) cout << " + ";
+                    cout << primes[i].expr;
+                    first = false;
+                }
+            }
+            cout << endl;
+        }
+        else {
+            cout << "\n\nНе все минтермы покрыты\n";
+        }
+
+        // Проверка линейности
+        cout << "\nПроверка линейности:\n";
+        cout << "f(0,0,0,0) = " << vectorStr[0] << endl;
+        if (vectorStr[0] == '1') {
+            cout << "Первый коэффициент РМ != 0 => функция не линейна\n";
+        }
+        else {
+            cout << "Первый коэффициент РМ = 0\n";
+        }
+    }
+
+    // Главный метод
+    void minimize() {
+        printTruthTable();
+        printSDNF();
+        findPrimes();
+        buildMatrix();
+        findCover();
+    }
+};
+
+// ==================== ГЛАВНАЯ ФУНКЦИЯ ====================
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+
+    cout << "МИНИМИЗАЦИЯ МЕТОДОМ КВАЙНА\n";
+    cout << "==========================\n";
+    cout << "1. Ввести вектор\n";
+    cout << "2. Из файла vector.txt\n";
+    cout << "Выбор: ";
+
+    int choice;
+    cin >> choice;
+
+    string vector;
+    if (choice == 1) {
+        vector = readVectorFromConsole();
+    }
+    else {
+        vector = readVectorFromFile("vector.txt");
+    }
+
+    if (!isValidVector(vector)) {
+        cout << "Ошибка: нужен вектор из 16 символов 0/1\n";
+        return 1;
+    }
+
+    QuineMcCluskey qm(vector);
+    qm.minimize();
+
+    return 0;
+}
